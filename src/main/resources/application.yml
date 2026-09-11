@@ -34,7 +34,7 @@ quotes:
     username: ${API_USERNAME:reviewer}
     password: ${API_PASSWORD:local-review-only}
   cors:
-    allowed-origin: ${FRONTEND_ORIGIN:http://localhost:5173}
+    allowed-origin: ${FRONTEND_ORIGIN:http://127.0.0.1:5174}
   insurer:
     url: ${INSURER_URL:https://httpbin.org/status/200}
     timeout: ${INSURER_TIMEOUT:5s}

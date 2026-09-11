@@ -1,3 +1,7 @@
 package com.felipejaner.quotes.domain;
 
-public enum CoverageType { BASIC, STANDARD, PREMIUM }
+public enum CoverageType {
+  BASIC,
+  STANDARD,
+  PREMIUM
+}
