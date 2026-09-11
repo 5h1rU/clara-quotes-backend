@@ -1,0 +1,166 @@
+openapi: 3.0.3
+info:
+  title: Clara Quotes API
+  version: 0.1.0
+  description: Local insurance onboarding challenge. Monetary values are USD.
+servers:
+  - url: http://localhost:8080
+security:
+  - basicAuth: []
+paths:
+  /quotes:
+    get:
+      summary: List all quotes, newest first
+      responses:
+        '200':
+          description: Quotes, or an empty array
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Quote'}
+        '401': {$ref: '#/components/responses/Error'}
+    post:
+      summary: Create a DRAFT quote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PersonalInfo'}
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location:
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Quote'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+  /quotes/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/QuoteId'}
+    get:
+      summary: Read a quote with locally cached response
+      responses:
+        '200': {$ref: '#/components/responses/Quote'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /quotes/{id}/coverage:
+    parameters:
+      - {$ref: '#/components/parameters/QuoteId'}
+    patch:
+      summary: Save coverage and recalculate estimatedMonthlyPremium
+      description: >-
+        At age <= 65, send only coverageType. Every health property is forbidden,
+        including false, empty arrays and null. At age > 65, all four boolean
+        answers are required. A true conditions answer requires a nonempty
+        conditions array; a false answer requires omitted or empty conditions.
+        Explicit null health properties are always rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CoverageRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Quote'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /quotes/{id}/submit:
+    parameters:
+      - {$ref: '#/components/parameters/QuoteId'}
+    post:
+      summary: Submit a complete quote, or return existing success idempotently
+      description: >-
+        Real external HTTP call; success commits SUBMITTED plus a durable pending
+        Kafka event. Insurer failure commits SUBMISSION_FAILED and returns 502.
+        The failed quote is retryable. Incomplete and expired quotes return 409.
+      responses:
+        '200': {$ref: '#/components/responses/Quote'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '502': {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    basicAuth: {type: http, scheme: basic}
+  parameters:
+    QuoteId:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  responses:
+    Error:
+      description: Structured error; message contains no stack trace
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ApiError'}
+    Quote:
+      description: Full saved quote state
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Quote'}
+  schemas:
+    PersonalInfo:
+      type: object
+      required: [name, email, age, zipCode]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        email: {type: string, format: email, maxLength: 254}
+        age: {type: integer, minimum: 1, maximum: 120}
+        zipCode: {type: string, pattern: '^[0-9]{5}(-[0-9]{4})?$'}
+    CoverageType:
+      type: string
+      enum: [BASIC, STANDARD, PREMIUM]
+    Condition:
+      type: string
+      enum: [DIABETES, HEART_DISEASE, HYPERTENSION, CANCER_HISTORY, OTHER]
+    CoverageRequest:
+      type: object
+      additionalProperties: false
+      required: [coverageType]
+      properties:
+        coverageType: {$ref: '#/components/schemas/CoverageType'}
+        hasPreexistingConditions: {type: boolean}
+        conditions:
+          type: array
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/Condition'}
+        takesPrescriptionMedication: {type: boolean}
+        usesTobacco: {type: boolean}
+        needsSpouseCoverage: {type: boolean}
+    Quote:
+      allOf:
+        - {$ref: '#/components/schemas/PersonalInfo'}
+        - type: object
+          required: [id, status, coverageType, conditions, estimatedMonthlyPremium, createdAt, updatedAt]
+          properties:
+            id: {type: string, format: uuid}
+            status: {type: string, enum: [DRAFT, SUBMITTED, SUBMISSION_FAILED, EXPIRED]}
+            coverageType: {type: string, enum: [BASIC, STANDARD, PREMIUM], nullable: true}
+            hasPreexistingConditions: {type: boolean, nullable: true}
+            conditions:
+              type: array
+              uniqueItems: true
+              items: {$ref: '#/components/schemas/Condition'}
+            takesPrescriptionMedication: {type: boolean, nullable: true}
+            usesTobacco: {type: boolean, nullable: true}
+            needsSpouseCoverage: {type: boolean, nullable: true}
+            estimatedMonthlyPremium: {type: number, nullable: true, example: 327.60}
+            createdAt: {type: string, format: date-time}
+            updatedAt: {type: string, format: date-time}
+            submittedAt: {type: string, format: date-time, nullable: true}
+    ApiError:
+      type: object
+      required: [code, message, fieldErrors, timestamp]
+      properties:
+        code: {type: string, example: INSURER_UNAVAILABLE}
+        message: {type: string}
+        fieldErrors:
+          type: object
+          additionalProperties: {type: string}
+        timestamp: {type: string, format: date-time}
