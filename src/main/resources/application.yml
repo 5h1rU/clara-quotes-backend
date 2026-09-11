@@ -1,0 +1,47 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/quotes}
+    username: ${POSTGRES_USER:quotes}
+    password: ${POSTGRES_PASSWORD:quotes-local}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 5000
+        request.timeout.ms: 3000
+        max.block.ms: 3000
+server:
+  error:
+    include-message: never
+    include-stacktrace: never
+quotes:
+  auth:
+    username: ${API_USERNAME:reviewer}
+    password: ${API_PASSWORD:local-review-only}
+  cors:
+    allowed-origin: ${FRONTEND_ORIGIN:http://localhost:5173}
+  insurer:
+    url: ${INSURER_URL:https://httpbin.org/status/200}
+    timeout: ${INSURER_TIMEOUT:5s}
+  expiration:
+    ttl: ${DRAFT_TTL:30m}
+    interval: ${DRAFT_EXPIRATION_INTERVAL:60s}
+  outbox:
+    interval: ${OUTBOX_INTERVAL:3s}
+  kafka:
+    topic: quotes.submitted.v1
