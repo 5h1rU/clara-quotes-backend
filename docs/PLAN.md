@@ -1,6 +1,6 @@
 # Implementation plan
 
-Read the complete seven-page assignment before implementation. Keep two private repositories at the candidate's request. Commit working milestones using Felipe Janer's configured identity.
+Read the complete seven-page assignment before implementation. Maintain separate backend and frontend repositories. Commit working milestones using Felipe Janer's configured identity.
 
 ## Sequence
 1. Establish the contract and reproducible Java 17/Maven + React/TypeScript builds.

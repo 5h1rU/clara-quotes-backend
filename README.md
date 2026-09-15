@@ -1,6 +1,6 @@
 # Clara Quotes API
 
-Insurance quote onboarding API built with Java 17, Spring Boot 3.5, Maven, PostgreSQL and Kafka. The paired [React frontend](https://github.com/5h1rU/clara-quotes-frontend) calls this API directly. Both repositories are intentionally private at the candidate's request, an explicit departure from the brief's public-repository requirement.
+Insurance quote onboarding API built with Java 17, Spring Boot 3.5, Maven, PostgreSQL and Kafka. The paired [React frontend](https://github.com/5h1rU/clara-quotes-frontend) calls this API directly. Both repositories are public and can be cloned directly.
 
 ## Run both applications
 
@@ -110,7 +110,7 @@ docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh   --bootstrap
 
 ## AI use, challenges and limits
 
-AI assistance (OpenAI Codex) was used to read the brief, propose the implementation plan, generate and revise code/tests/docs, set up the local runtime, and execute validation. Felipe directed the required stack, private repositories, incremental commit ownership, and interview-learning materials. Automated checks and actual browser/API tests were used to review generated output. The walkthrough and interview exercises support Felipe’s ongoing manual code review. Commits use Felipe's Git identity, with no AI co-author trailer.
+AI assistance (OpenAI Codex) was used to read the brief, propose the implementation plan, generate and revise code/tests/docs, set up the local runtime, and execute validation. Felipe directed the required stack, incremental commit ownership, and interview-learning materials. Automated checks and actual browser/API tests were used to review generated output. The walkthrough and interview exercises support Felipe’s ongoing manual code review. Commits use Felipe's Git identity, with no AI co-author trailer.
 
 Validation uncovered and fixed absent-vs-null JSON handling, CORS preflight wiring, an ARM-incompatible runtime image, and Kafka data-volume ownership. See [verification evidence](docs/VERIFICATION.md) for actual checks and outcomes.
 

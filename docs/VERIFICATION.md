@@ -11,7 +11,7 @@
 - Hibernate statement counts verify `/session` reads no quotes, collection GET fetches both quotes and conditions in one query, and repeated quote reads hit the cache. Integration tests verify refresh after coverage, submission failure, success and expiration.
 - The expiration regression confirms the chosen policy: elapsed time since creation for DRAFT; recent editing does not reset the timer; SUBMISSION_FAILED stays retryable.
 
-The submission row lock remains a documented throughput trade-off. The brief explicitly asks for all quotes and DRAFT expiration; those contracts remain intact. The repositories remain private under the candidate's instruction. This follow-up does not claim crash recovery, multiple-instance cache consistency or load testing.
+The submission row lock remains a documented throughput trade-off. The brief explicitly asks for all quotes and DRAFT expiration; those contracts remain intact. This follow-up does not claim crash recovery, multiple-instance cache consistency or load testing.
 
 ## Original verification, 2026-09-11
 
