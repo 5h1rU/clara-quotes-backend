@@ -23,7 +23,7 @@ public class PremiumCalculator {
   public PremiumCalculator() {
     this(
         List.of(
-            (age, h) -> age > 65 ? new BigDecimal("1.5") : ONE,
+            (age, h) -> ApplicantRules.isSenior(age) ? new BigDecimal("1.5") : ONE,
             (age, h) -> h != null && !h.conditions().isEmpty() ? new BigDecimal("1.3") : ONE,
             (age, h) -> h != null && h.usesTobacco() ? new BigDecimal("1.2") : ONE,
             (age, h) -> h != null && h.needsSpouseCoverage() ? new BigDecimal("1.4") : ONE));

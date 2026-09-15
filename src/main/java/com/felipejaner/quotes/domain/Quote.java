@@ -92,7 +92,7 @@ public class Quote {
     requireEditable();
     if (coverageType == null
         || estimatedMonthlyPremium == null
-        || (age > 65
+        || (ApplicantRules.isSenior(age)
             && (hasPreexistingConditions == null
                 || takesPrescriptionMedication == null
                 || usesTobacco == null

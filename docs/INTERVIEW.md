@@ -28,7 +28,7 @@ Say this in your own words and then open the classes. Be explicit that AI assist
 | What does @Version do? | Detects stale entity updates; the bulk expiration query increments it explicitly. |
 | Why a single expiration UPDATE? | Atomic batch transition, less round-trip overhead, no partial per-row job progress. |
 | Why AFTER_COMMIT eviction? | Invalidate according to committed state, including expected failed submissions. |
-| Is the cache strictly consistent? | No: local and TTL-bounded; mutation decisions bypass it. Explain multi-instance limitations. |
+| Is the cache strictly consistent? | Late fills cannot revive an invalidated generation. In-flight reads can still return their original snapshot; multiple instances need coordinated invalidation. Mutation decisions bypass the cache. |
 | Why does this.method() matter? | Self-invocation bypasses Spring's proxy and its transaction/cache advice. |
 | Why not save credentials in localStorage? | It unnecessarily persists reusable secrets; memory suffices for this local reviewer flow. |
 | Why does editing personal info create a quote? | The fixed API has no personal-update route; document the tradeoff and expire old drafts. |
@@ -60,7 +60,7 @@ Use the README's `/status/503` override. Submit, confirm the error and persisted
 
 ## Exercise 7: find a production limit (10 minutes)
 
-Choose one: holding a row lock during a network call, shared authentication with no row ownership, local cache races, unpaginated lists, or outbox growth. Propose the smallest coherent improvement and name the tests and migrations it needs. Do not respond “add microservices” without explaining the actual failure being addressed.
+Choose one: holding a row lock during a network call, shared authentication with no row ownership, cache invalidation across instances, unpaginated lists, or outbox growth. Propose the smallest coherent improvement and name the tests and migrations it needs. Do not respond “add microservices” without explaining the actual failure being addressed.
 
 ## When asked to make a live change
 

@@ -3,12 +3,18 @@ package com.felipejaner.quotes.persistence;
 import com.felipejaner.quotes.domain.Quote;
 import jakarta.persistence.LockModeType;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
 public interface QuoteRepository extends JpaRepository<Quote, UUID> {
+  @Override
+  @EntityGraph(attributePaths = "conditions")
+  List<Quote> findAll(Sort sort);
+
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("select q from Quote q where q.id = :id")
   Optional<Quote> findForUpdate(@Param("id") UUID id);

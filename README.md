@@ -1,6 +1,6 @@
 # Clara Quotes API
 
-Insurance quote onboarding API built with Java 17, Spring Boot 3.5, Maven, PostgreSQL and Kafka. The paired [React frontend](https://github.com/5h1rU/clara-quotes-frontend) calls this API directly. Both repositories are intentionally private at the candidate's request.
+Insurance quote onboarding API built with Java 17, Spring Boot 3.5, Maven, PostgreSQL and Kafka. The paired [React frontend](https://github.com/5h1rU/clara-quotes-frontend) calls this API directly. Both repositories are intentionally private at the candidate's request, an explicit departure from the brief's public-repository requirement.
 
 ## Run both applications
 
@@ -67,13 +67,14 @@ All application endpoints require an explicit HTTP Basic `Authorization` header.
 
 | Method | Path | Behavior |
 | --- | --- | --- |
+| GET | `/session` | Check credentials; return 204 without loading quotes |
 | POST | `/quotes` | Validate personal data, create DRAFT, return 201 and Location |
 | GET | `/quotes` | Return quotes, newest first; empty collection is `[]` |
 | GET | `/quotes/{id}` | Return full state, cached locally |
 | PATCH | `/quotes/{id}/coverage` | Validate conditional health fields and return recalculated premium |
 | POST | `/quotes/{id}/submit` | Submit complete quote; repeated success is idempotent |
 
-`400` means invalid input, `401` invalid/missing credentials, `404` missing quote, `409` invalid state/concurrent update, and `502` insurer failure. Errors have `{code, message, fieldErrors, timestamp}` and never expose stack traces.
+`400` means invalid input, `401` invalid/missing credentials, `404` missing quote or route, `405` unsupported method, `415` unsupported content type, `409` invalid state/concurrent update, and `502` insurer failure. Errors have `{code, message, fieldErrors, timestamp}` and never expose stack traces. Unexpected failures log the full exception on the server. Framework errors retain their status and headers, including `Allow` for 405.
 
 At age **65**, health properties must be omitted altogether, including empty arrays, `false`, and explicit `null`. At age **66**, all four yes/no answers are required. A true conditions answer requires one or more conditions; a false answer requires no selected conditions. Multiple conditions apply the multiplier once. Medication is recorded but has **no pricing multiplier**. The exact example is `$100 × 1.5 × 1.3 × 1.2 × 1.4 = $327.60`.
 
@@ -82,12 +83,13 @@ The brief does not specify age/ZIP formats or currency. This implementation expl
 ## Design decisions
 
 - **Domain state machine:** `Quote` controls edit/submit transitions. DRAFT and SUBMISSION_FAILED are editable; SUBMITTED and EXPIRED are terminal. Submission of SUBMITTED returns the existing response before making any side effect.
+- **Shared age rule:** `ApplicantRules.isSenior` owns the backend age boundary for validation, submission completeness and pricing. The frontend mirrors that predicate in `applicantRules.ts` for forms, summary and preview. Both runtimes enforce the fixed age-65/66 contract independently.
 - **Composed pricing strategies:** `PremiumCalculator` combines `PremiumFactor` functions and `BigDecimal`, rounding once to two decimal places. Pricing is independent of HTTP and persistence. New multipliers can be added without modifying submission logic. This is deliberately a small composition, not a rule-engine framework.
 - **Ports and adapters:** `SubmissionService` depends on the `InsurerGateway` interface; `HttpInsurerGateway` implements it with Java's HTTP client. Tests replace the boundary without changing business logic. Constructor injection makes dependencies visible.
 - **Concurrency:** a PostgreSQL pessimistic row lock serializes mutation of one quote. A bounded external request runs while that lock is held. This is an intentional take-home tradeoff: simple, testable concurrency at the cost of holding a database connection during network latency. A higher-throughput design would use an intermediate submission state, a lease, and asynchronous completion.
 - **Failure transaction:** `noRollbackFor = InsurerUnavailableException.class` allows the database to commit SUBMISSION_FAILED even when the API returns 502. Unexpected errors still roll back. The quote remains retryable.
 - **Transactional outbox (production-oriented addition):** quote success and one unique event are saved in the same PostgreSQL transaction. A scheduled publisher sends pending events to Kafka and records acknowledgement. Kafka outages do not lose the event or force a second insurer call. Delivery is **at least once**; consumers must deduplicate by `eventId`. This does not claim distributed exactly-once delivery.
-- **Cache:** Spring's `@Cacheable` caches immutable response DTOs in Caffeine. AFTER_COMMIT listeners evict changed quotes, including failed submissions; expiration clears the local quote cache after a single transactional bulk update. Cache capacity is 1,000 and TTL is 30 seconds. Local cache is suitable for this single-instance app; it is not a multi-instance coherence solution. A concurrent cache fill can briefly race invalidation; TTL bounds staleness, and all mutations read locked database state rather than cached data.
+- **Cache:** `QuoteCache` uses Spring's `Cache` abstraction backed by Caffeine to cache immutable response DTOs. Cache keys contain the quote ID and a local generation number. An AFTER_COMMIT listener advances that generation and clears the cache whenever a quote changes, including failed submissions and batch expiration. An older in-flight read can finish with its original snapshot, but any late cache fill uses an obsolete generation and cannot be served to later requests. Clearing all entries simplifies correctness at the cost of unrelated cache misses. Capacity is 1,000 and TTL is 30 seconds. This is a single-instance design; multiple instances require coordinated invalidation.
 - **Expiration:** one JPQL bulk UPDATE finds DRAFT quotes older than `DRAFT_TTL`, changes status and version together, then clears the cache. Age is measured from creation, not last editing. Failed submissions are intentionally excluded, as the assignment specifies DRAFT.
 - **Database migrations:** Flyway owns schema changes; Hibernate validates the schema instead of silently editing it on startup.
 - **OpenAPI (second addition):** a checked-in specification makes the two-repository contract reviewable without requiring a running UI. It is documentation, not an unauthenticated Swagger endpoint.
@@ -108,10 +110,10 @@ docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh   --bootstrap
 
 ## AI use, challenges and limits
 
-AI assistance (OpenAI Codex) was used to read the brief, propose the implementation plan, generate and revise code/tests/docs, set up the local runtime, and execute validation. Felipe directed the required stack, private repositories, incremental commit ownership, and interview-learning materials. Automated checks and actual browser/API tests were used to review generated output. This disclosure does **not** claim Felipe has already manually reviewed every line or completed the walkthrough. The guided review is provided for that next step. Commits use Felipe's Git identity, with no AI co-author trailer.
+AI assistance (OpenAI Codex) was used to read the brief, propose the implementation plan, generate and revise code/tests/docs, set up the local runtime, and execute validation. Felipe directed the required stack, private repositories, incremental commit ownership, and interview-learning materials. Automated checks and actual browser/API tests were used to review generated output. The walkthrough and interview exercises support Felipe’s ongoing manual code review. Commits use Felipe's Git identity, with no AI co-author trailer.
 
 Validation uncovered and fixed absent-vs-null JSON handling, CORS preflight wiring, an ARM-incompatible runtime image, and Kafka data-volume ownership. See [verification evidence](docs/VERIFICATION.md) for actual checks and outcomes.
 
-Remaining scope limits: one shared reviewer account (no customer ownership/roles), unpaginated list per the brief, local cache, no insurer crash reconciliation, no outbox retention/dead-letter administration, and no public deployment. Broker delivery is asynchronous; SUBMITTED means insurer accepted and the event is durably pending or delivered. Public free APIs can be unavailable. These are documented tradeoffs, not guarantees of production readiness.
+Remaining scope limits: one shared reviewer account (no customer ownership/roles), unpaginated list per the brief (conditions fetched in the same query; sign-in uses `/session`), local cache, no insurer crash reconciliation, no outbox retention/dead-letter administration, and no public deployment. Broker delivery is asynchronous; SUBMITTED means insurer accepted and the event is durably pending or delivered. Public free APIs can be unavailable. These are documented tradeoffs, not guarantees of production readiness.
 
 Start learning with [the Java/Spring walkthrough](docs/WALKTHROUGH.md), then use [interview exercises](docs/INTERVIEW.md).

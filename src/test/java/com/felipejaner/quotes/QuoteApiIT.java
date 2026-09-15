@@ -12,9 +12,13 @@ import com.felipejaner.quotes.application.*;
 import com.felipejaner.quotes.error.InsurerUnavailableException;
 import com.felipejaner.quotes.messaging.*;
 import com.felipejaner.quotes.submission.InsurerGateway;
+import jakarta.persistence.EntityManagerFactory;
 import java.util.UUID;
 import java.util.concurrent.*;
+import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -30,7 +34,13 @@ import org.testcontainers.junit.jupiter.*;
 
 @Testcontainers
 @SpringBootTest(
-    properties = {"quotes.scheduling.enabled=false", "spring.kafka.admin.auto-create=false"})
+    properties = {
+      "quotes.scheduling.enabled=false",
+      "spring.kafka.admin.auto-create=false",
+      "spring.jpa.properties.hibernate.generate_statistics=true",
+      "logging.level.org.hibernate.stat=OFF",
+      "logging.level.org.hibernate.engine.internal.StatisticalLoggingSessionEventListener=OFF"
+    })
 @AutoConfigureMockMvc
 class QuoteApiIT {
   @Container
@@ -50,6 +60,7 @@ class QuoteApiIT {
   @Autowired DraftExpirationService expiration;
   @Autowired CacheManager cache;
   @Autowired OutboxPublisher publisher;
+  @Autowired EntityManagerFactory entityManagerFactory;
   @MockitoBean InsurerGateway insurer;
   @MockitoBean KafkaTemplate<String, String> kafka;
 
@@ -86,6 +97,43 @@ class QuoteApiIT {
                 .content("{\"coverageType\":\"STANDARD\"}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.estimatedMonthlyPremium").value(100));
+  }
+
+  @Test
+  void frameworkErrorsKeepTheirStatusHeadersAndApiShape() throws Exception {
+    mvc.perform(get("/unknown-path").with(httpBasic("reviewer", "local-review-only")))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("NOT_FOUND"))
+        .andExpect(jsonPath("$.fieldErrors").isMap());
+    mvc.perform(delete("/quotes").with(httpBasic("reviewer", "local-review-only")))
+        .andExpect(status().isMethodNotAllowed())
+        .andExpect(header().exists("Allow"))
+        .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
+    mvc.perform(
+            post("/quotes")
+                .with(httpBasic("reviewer", "local-review-only"))
+                .contentType("text/plain")
+                .content("invalid"))
+        .andExpect(status().isUnsupportedMediaType())
+        .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"));
+  }
+
+  @Test
+  void sessionCheckAuthenticatesWithoutReadingQuotesAndListFetchesConditionsOnce()
+      throws Exception {
+    create(30);
+    create(70);
+    var stats = entityManagerFactory.unwrap(SessionFactoryImplementor.class).getStatistics();
+    stats.clear();
+    mvc.perform(get("/session")).andExpect(status().isUnauthorized());
+    mvc.perform(get("/session").with(httpBasic("reviewer", "local-review-only")))
+        .andExpect(status().isNoContent())
+        .andExpect(content().string(""));
+    assertThat(stats.getPrepareStatementCount()).isZero();
+    mvc.perform(get("/quotes").with(httpBasic("reviewer", "local-review-only")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(2));
+    assertThat(stats.getPrepareStatementCount()).isEqualTo(1);
   }
 
   @Test
@@ -193,6 +241,22 @@ class QuoteApiIT {
   }
 
   @Test
+  void expirationUsesDraftAgeAndKeepsFailedSubmissionsRetryable() throws Exception {
+    var editedDraft = create(30);
+    coverage(editedDraft);
+    var failed = create(30);
+    coverage(failed);
+    doThrow(new InsurerUnavailableException("offline")).when(insurer).submit(failed);
+    mvc.perform(
+            post("/quotes/" + failed + "/submit").with(httpBasic("reviewer", "local-review-only")))
+        .andExpect(status().isBadGateway());
+    jdbc.update("update quotes set created_at = now() - interval '31 minutes'");
+    assertThat(expiration.expire()).isEqualTo(1);
+    assertThat(quotes.get(editedDraft).status().name()).isEqualTo("EXPIRED");
+    assertThat(quotes.get(failed).status().name()).isEqualTo("SUBMISSION_FAILED");
+  }
+
+  @Test
   void incompleteQuoteCannotSubmit() throws Exception {
     var id = create(30);
     mvc.perform(post("/quotes/" + id + "/submit").with(httpBasic("reviewer", "local-review-only")))
@@ -231,6 +295,50 @@ class QuoteApiIT {
     } finally {
       executor.shutdownNow();
     }
+  }
+
+  @Test
+  void repeatedReadUsesCacheUntilQuoteChanges() throws Exception {
+    var id = create(30);
+    quotes.get(id);
+    var stats = entityManagerFactory.unwrap(SessionFactoryImplementor.class).getStatistics();
+    stats.clear();
+    quotes.get(id);
+    assertThat(stats.getPrepareStatementCount()).isZero();
+    coverage(id);
+    assertThat(quotes.get(id).estimatedMonthlyPremium()).isEqualByComparingTo("100.00");
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void synchronousBrokerFailureCommitsEarlierAcknowledgementAndRetriesPending(boolean spring)
+      throws Exception {
+    for (int i = 0; i < 2; i++) {
+      var id = create(30);
+      coverage(id);
+      mvc.perform(
+              post("/quotes/" + id + "/submit").with(httpBasic("reviewer", "local-review-only")))
+          .andExpect(status().isOk());
+    }
+    RuntimeException failure =
+        spring
+            ? new org.springframework.kafka.KafkaException("send failed")
+            : new org.apache.kafka.common.KafkaException("send failed");
+    when(kafka.send(anyString(), anyString(), anyString()))
+        .thenReturn(CompletableFuture.completedFuture(null))
+        .thenThrow(failure)
+        .thenReturn(CompletableFuture.completedFuture(null));
+    publisher.publishPending();
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from outbox_events where published_at is not null", Integer.class))
+        .isEqualTo(1);
+    publisher.publishPending();
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from outbox_events where published_at is not null", Integer.class))
+        .isEqualTo(2);
+    verify(kafka, times(3)).send(anyString(), anyString(), anyString());
   }
 
   @Test

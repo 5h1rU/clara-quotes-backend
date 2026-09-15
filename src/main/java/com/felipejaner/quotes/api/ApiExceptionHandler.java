@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.http.*;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -63,7 +64,14 @@ public class ApiExceptionHandler {
 
   @ExceptionHandler(Exception.class)
   ResponseEntity<ApiError> unexpected(Exception e) {
-    log.error("Unexpected request failure ({})", e.getClass().getSimpleName());
+    // MVC exceptions carry their HTTP status and headers (for example Allow on 405).
+    if (e instanceof ErrorResponse error && error.getStatusCode().is4xxClientError()) {
+      var status = HttpStatus.valueOf(error.getStatusCode().value());
+      return ResponseEntity.status(status)
+          .headers(error.getHeaders())
+          .body(ApiError.of(status.name(), status.getReasonPhrase()));
+    }
+    log.error("Unexpected request failure", e);
     return ResponseEntity.internalServerError()
         .body(
             ApiError.of("INTERNAL_ERROR", "The request could not be completed. Please try again."));

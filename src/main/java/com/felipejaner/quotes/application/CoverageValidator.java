@@ -1,6 +1,7 @@
 package com.felipejaner.quotes.application;
 
 import com.felipejaner.quotes.api.CoverageRequest;
+import com.felipejaner.quotes.domain.ApplicantRules;
 import com.felipejaner.quotes.domain.HealthDetails;
 import com.felipejaner.quotes.error.QuoteValidationException;
 import java.util.LinkedHashMap;
@@ -12,7 +13,7 @@ import org.springframework.stereotype.Component;
 public class CoverageValidator {
   public HealthDetails validate(int age, CoverageRequest r) {
     Map<String, String> errors = new LinkedHashMap<>();
-    if (age <= 65) {
+    if (!ApplicantRules.isSenior(age)) {
       if (r.hasPreexistingConditions() != null
           || r.conditions() != null
           || r.takesPrescriptionMedication() != null

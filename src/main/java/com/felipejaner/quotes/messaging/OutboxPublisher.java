@@ -50,6 +50,7 @@ public class OutboxPublisher {
       } catch (ExecutionException
           | TimeoutException
           | JsonProcessingException
+          | org.springframework.kafka.KafkaException
           | org.apache.kafka.common.KafkaException e) {
         // Keep pending. A crash after acknowledgement can redeliver the same eventId.
         log.warn(

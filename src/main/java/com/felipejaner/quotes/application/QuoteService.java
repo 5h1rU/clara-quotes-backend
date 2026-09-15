@@ -8,7 +8,6 @@ import com.felipejaner.quotes.pricing.PremiumCalculator;
 import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -21,18 +20,21 @@ public class QuoteService {
   private final PremiumCalculator calculator;
   private final Clock clock;
   private final ApplicationEventPublisher events;
+  private final QuoteCache cache;
 
   public QuoteService(
       QuoteRepository repository,
       CoverageValidator validator,
       PremiumCalculator calculator,
       Clock clock,
-      ApplicationEventPublisher events) {
+      ApplicationEventPublisher events,
+      QuoteCache cache) {
     this.repository = repository;
     this.validator = validator;
     this.calculator = calculator;
     this.clock = clock;
     this.events = events;
+    this.cache = cache;
   }
 
   @Transactional
@@ -47,13 +49,15 @@ public class QuoteService {
                 clock.instant())));
   }
 
-  @Cacheable(value = "quotes", key = "#id")
   @Transactional(readOnly = true)
   public QuoteResponse get(UUID id) {
-    return QuoteResponse.from(
-        repository
-            .findById(id)
-            .orElseThrow(() -> new QuoteNotFoundException("Quote was not found.")));
+    return cache.get(
+        id,
+        () ->
+            QuoteResponse.from(
+                repository
+                    .findById(id)
+                    .orElseThrow(() -> new QuoteNotFoundException("Quote was not found."))));
   }
 
   @Transactional(readOnly = true)

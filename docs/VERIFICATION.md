@@ -1,5 +1,20 @@
 # Verification record
 
+## Review follow-up, 2026-09-15
+
+- `./mvnw spotless:apply verify`: passed, 13 unit tests and 14 PostgreSQL integration cases, zero failures/errors/skips. `./mvnw spotless:check` also passed.
+- JaCoCo: 93.8% line coverage and 85.3% branch coverage.
+- Rebuilt only the local API container, preserving its existing public insurer `/status/503` override. Live authenticated probes returned `/session` 204 with no body, unknown path 404, unsupported DELETE 405 with `Allow: GET, POST`, and wrong content type 415. Existing PostgreSQL and Kafka containers/volumes were preserved.
+- Added regressions for synchronous Spring and Apache Kafka exceptions after an earlier acknowledgement in the same outbox batch. The earlier acknowledgement commits and only the remaining event retries.
+- MockMvc verifies framework 404/405/415 statuses, the API error shape and the 405 `Allow` header. A captured-log test verifies internal exception messages, stack frames and root causes stay in server logs while the response remains generic.
+- A controlled concurrent cache test pauses an old read, invalidates the cache, stores a fresh result and then releases the old read. Later requests still get the fresh result. Both quote-specific and bulk invalidation events are covered.
+- Hibernate statement counts verify `/session` reads no quotes, collection GET fetches both quotes and conditions in one query, and repeated quote reads hit the cache. Integration tests verify refresh after coverage, submission failure, success and expiration.
+- The expiration regression confirms the chosen policy: elapsed time since creation for DRAFT; recent editing does not reset the timer; SUBMISSION_FAILED stays retryable.
+
+The submission row lock remains a documented throughput trade-off. The brief explicitly asks for all quotes and DRAFT expiration; those contracts remain intact. The repositories remain private under the candidate's instruction. This follow-up does not claim crash recovery, multiple-instance cache consistency or load testing.
+
+## Original verification, 2026-09-11
+
 Executed locally on 2026-09-11, macOS Apple Silicon, JDK 17, Maven wrapper, Colima/Docker. Only synthetic personal data was used.
 
 | Check | Outcome |

@@ -158,17 +158,17 @@ Another crash window exists between external acceptance and the submission datab
 
 ## 9. Caching and expiration
 
-`QuoteService.get` uses `@Cacheable`: Spring checks the Caffeine cache before calling the method body. Its cached value is an immutable DTO, not a managed JPA entity. Never use a cached quote to decide if a mutation is allowed.
+`QuoteService.get` delegates to `QuoteCache`, which uses Spring’s `Cache` abstraction to read/write Caffeine entries keyed by quote ID and generation. Its cached value is an immutable DTO, not a managed JPA entity. Never use a cached quote to decide if a mutation is allowed.
 
-An application `QuoteChanged` event is different from the Kafka event. It stays inside Spring and is used by `InfrastructureConfig.CacheInvalidation`. `@TransactionalEventListener(AFTER_COMMIT)` waits for a successful database commit before evicting. It also runs when the expected insurer exception commits the failure state.
+An application `QuoteChanged` event is different from the Kafka event. It stays inside Spring and is used by `QuoteCache.onChange`. `@TransactionalEventListener(AFTER_COMMIT)` waits for a successful database commit before advancing the generation and clearing the cache. It also runs when the expected insurer exception commits the failure state.
 
 `DraftExpirationService` executes one bulk UPDATE in one transaction. Bulk JPQL bypasses normal per-entity dirty checking, so it explicitly increments `version` and clears the persistence context. The job publishes a cache-clear event only if rows changed. It does not loop over quotes and save them separately.
 
-The local cache assumes a single API instance. In-flight reads can race eviction, and the 30-second TTL bounds staleness. Multiple instances would need coordinated invalidation or a shared cache. Cache correctness here does not mean strict serializable reads; mutation correctness comes from the database.
+The local cache assumes a single API instance. An in-flight read can return its original snapshot, but its late cache fill uses an obsolete generation and cannot overwrite the entries used by later reads. Every change invalidates all entries, trading extra misses for a simple correctness rule. Entries still have a 30-second TTL. Multiple instances would need coordinated invalidation or a shared cache. Cache correctness here does not mean strict serializable reads; mutation correctness comes from the database.
 
 ## 10. Spring's invisible wrapper
 
-`@Transactional` and `@Cacheable` are usually implemented by proxy objects around your beans. Calling the bean from another bean passes through the wrapper. Calling another annotated method using `this.method()` inside the same class bypasses the proxy.
+`@Transactional` is implemented by proxy objects around your beans. Spring’s optional `@Cacheable` annotation works similarly, though this app now uses the `Cache` API directly to control generation keys. Calling the bean from another bean passes through the wrapper. Calling another annotated method using `this.method()` inside the same class bypasses the proxy.
 
 That is why scheduled trigger methods are in `ScheduledJobs`, while the transactional work is in `DraftExpirationService` and `OutboxPublisher`. A job calls another bean and gets transaction behavior. Tests using `new SubmissionService(...)` verify business logic but do not activate Spring transaction semantics. The PostgreSQL integration tests verify those semantics separately.
 
